@@ -14,24 +14,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ================================================================
-      # DOCKER BUILD (Optional)
-      # ================================================================
-      - name: Build Docker image
-        run: docker build -t api-tests:latest .
-
-      # ================================================================
-      # JAVA SETUP
-      # ================================================================
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      # ================================================================
-      # MAVEN CACHE
-      # ================================================================
       - name: Cache Maven dependencies
         uses: actions/cache@v4
         with:
@@ -39,120 +27,14 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
 
-      # ================================================================
-      # RUN TESTS
-      # ================================================================
       - name: Run tests
-        id: tests
-        run: mvn -B clean test
-        continue-on-error: true
+        run: mvn test
 
-      # ================================================================
-      # GENERATE ALLURE REPORT
-      # ================================================================
       - name: Generate Allure Report
         run: mvn allure:report
-        continue-on-error: true
 
-      # ================================================================
-      # UPLOAD ALLURE HTML REPORT
-      # ================================================================
       - name: Upload Allure Report
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
           path: target/site/allure-maven-plugin
-
-      # ================================================================
-      # SLACK NOTIFICATION (SUCCESS)
-      # ================================================================
-      - name: Slack Notification - Success
-        if: success()
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          payload=$(cat <<EOF
-          {
-            "attachments": [
-              {
-                "color": "good",
-                "title": "✅ API Tests PASSED",
-                "text": "*Repository:* ${GITHUB_REPOSITORY}\n*Branch:* ${GITHUB_REF_NAME}\n*Run:* ${RUN_URL}",
-                "mrkdwn_in": ["text"]
-              }
-            ]
-          }
-          EOF
-          )
-          curl -X POST -H "Content-type: application/json" --data "$payload" "$SLACK_WEBHOOK_URL"
-
-      # ================================================================
-      # SLACK NOTIFICATION (FAILURE)
-      # ================================================================
-      - name: Slack Notification - Failure
-        if: failure()
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          payload=$(cat <<EOF
-          {
-            "attachments": [
-              {
-                "color": "danger",
-                "title": "❌ API Tests FAILED",
-                "text": "*Repository:* ${GITHUB_REPOSITORY}\n*Branch:* ${GITHUB_REF_NAME}\n*Run:* ${RUN_URL}\n\nDownload the Allure Report for full test logs.",
-                "mrkdwn_in": ["text"]
-              }
-            ]
-          }
-          EOF
-          )
-          curl -X POST -H "Content-type: application/json" --data "$payload" "$SLACK_WEBHOOK_URL"
-
-      # ================================================================
-      # EMAIL NOTIFICATION (SUCCESS)
-      # ================================================================
-      - name: Send Email - Success
-        if: success()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ secrets.MAIL_SERVER }}
-          server_port: ${{ secrets.MAIL_PORT }}
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "✅ API Tests Passed — ${{ github.repository }}"
-          to: ${{ secrets.MAIL_TO }}
-          from: ${{ secrets.MAIL_FROM }}
-          content_type: text/html
-          body: |
-            <h2 style="color:green;">API Tests Passed ✔</h2>
-            <p><b>Repository:</b> ${{ github.repository }}</p>
-            <p><b>Branch:</b> ${{ github.ref_name }}</p>
-            <p><b>Triggered By:</b> ${{ github.actor }}</p>
-            <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Workflow Run</a></p>
-            <p>Download the Allure report from the workflow artifacts.</p>
-
-      # ================================================================
-      # EMAIL NOTIFICATION (FAILURE)
-      # ================================================================
-      - name: Send Email - Failure
-        if: failure()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ secrets.MAIL_SERVER }}
-          server_port: ${{ secrets.MAIL_PORT }}
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "❌ API Tests Failed — ${{ github.repository }}"
-          to: ${{ secrets.MAIL_TO }}
-          from: ${{ secrets.MAIL_FROM }}
-          content_type: text/html
-          body: |
-            <h2 style="color:red;">API Tests FAILED ❌</h2>
-            <p><b>Repository:</b> ${{ github.repository }}</p>
-            <p><b>Branch:</b> ${{ github.ref_name }}</p>
-            <p><b>Triggered By:</b> ${{ github.actor }}</p>
-            <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Workflow Run</a></p>
-            <p>Please download the Allure report for full failure logs.</p>

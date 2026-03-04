@@ -30,11 +30,24 @@ jobs:
       - name: Run tests
         id: run_tests
         run: |
+          set +e
           mvn test | tee test-output.txt
-          echo "tests_run=$(grep -oP 'Tests run: \K[0-9]+' test-output.txt | awk '{s+=$1} END {print s}')" >> $GITHUB_OUTPUT
-          echo "failures=$(grep -oP 'Failures: \K[0-9]+' test-output.txt | awk '{s+=$1} END {print s}')" >> $GITHUB_OUTPUT
-          echo "errors=$(grep -oP 'Errors: \K[0-9]+' test-output.txt | awk '{s+=$1} END {print s}')" >> $GITHUB_OUTPUT
-          echo "skipped=$(grep -oP 'Skipped: \K[0-9]+' test-output.txt | awk '{s+=$1} END {print s}')" >> $GITHUB_OUTPUT
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+
+          # Only read the LAST occurrence (final summary line)
+          echo "tests_run=$(grep -oP 'Tests run: \K[0-9]+' test-output.txt | tail -1)" >> $GITHUB_OUTPUT
+          echo "failures=$(grep -oP 'Failures: \K[0-9]+' test-output.txt | tail -1)" >> $GITHUB_OUTPUT
+          echo "errors=$(grep -oP 'Errors: \K[0-9]+' test-output.txt | tail -1)" >> $GITHUB_OUTPUT
+          echo "skipped=$(grep -oP 'Skipped: \K[0-9]+' test-output.txt | tail -1)" >> $GITHUB_OUTPUT
+
+          exit $TEST_EXIT_CODE
+
+      - name: Extract failed tests
+        if: failure()
+        id: failed_tests
+        run: |
+          FAILED=$(grep -oP 'FAILED\s+\K\S+' test-output.txt | head -20 | sed 's/^/• /' | tr '\n' '|')
+          echo "list=$FAILED" >> $GITHUB_OUTPUT
 
       - name: Generate Allure Report
         if: always()
@@ -60,14 +73,14 @@ jobs:
                 {
                   "color": "good",
                   "fields": [
-                    { "title": "Branch",    "value": "${{ github.ref_name }}", "short": true },
-                    { "title": "Triggered", "value": "${{ github.actor }}",    "short": true },
-                    { "title": "Tests Run", "value": "${{ steps.run_tests.outputs.tests_run }}", "short": true },
-                    { "title": "Failures",  "value": "${{ steps.run_tests.outputs.failures }}",  "short": true },
-                    { "title": "Errors",    "value": "${{ steps.run_tests.outputs.errors }}",    "short": true },
-                    { "title": "Skipped",   "value": "${{ steps.run_tests.outputs.skipped }}",   "short": true },
-                    { "title": "Commit",    "value": "${{ github.sha }}",                        "short": false },
-                    { "title": "Allure Report", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false }
+                    { "title": "Branch",        "value": "${{ github.ref_name }}",                                                                                    "short": true  },
+                    { "title": "Triggered",      "value": "${{ github.actor }}",                                                                                       "short": true  },
+                    { "title": "Tests Run",      "value": "${{ steps.run_tests.outputs.tests_run }}",                                                                  "short": true  },
+                    { "title": "Failures",       "value": "${{ steps.run_tests.outputs.failures }}",                                                                   "short": true  },
+                    { "title": "Errors",         "value": "${{ steps.run_tests.outputs.errors }}",                                                                     "short": true  },
+                    { "title": "Skipped",        "value": "${{ steps.run_tests.outputs.skipped }}",                                                                    "short": true  },
+                    { "title": "Commit",         "value": "${{ github.sha }}",                                                                                         "short": false },
+                    { "title": "Allure Report",  "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",                      "short": false }
                   ]
                 }
               ]
@@ -87,14 +100,15 @@ jobs:
                 {
                   "color": "danger",
                   "fields": [
-                    { "title": "Branch",    "value": "${{ github.ref_name }}", "short": true },
-                    { "title": "Triggered", "value": "${{ github.actor }}",    "short": true },
-                    { "title": "Tests Run", "value": "${{ steps.run_tests.outputs.tests_run }}", "short": true },
-                    { "title": "Failures",  "value": "${{ steps.run_tests.outputs.failures }}",  "short": true },
-                    { "title": "Errors",    "value": "${{ steps.run_tests.outputs.errors }}",    "short": true },
-                    { "title": "Skipped",   "value": "${{ steps.run_tests.outputs.skipped }}",   "short": true },
-                    { "title": "Commit",    "value": "${{ github.sha }}",                        "short": false },
-                    { "title": "Allure Report", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false }
+                    { "title": "Branch",        "value": "${{ github.ref_name }}",                                                                                    "short": true  },
+                    { "title": "Triggered",      "value": "${{ github.actor }}",                                                                                       "short": true  },
+                    { "title": "Tests Run",      "value": "${{ steps.run_tests.outputs.tests_run }}",                                                                  "short": true  },
+                    { "title": "Failures",       "value": "${{ steps.run_tests.outputs.failures }}",                                                                   "short": true  },
+                    { "title": "Errors",         "value": "${{ steps.run_tests.outputs.errors }}",                                                                     "short": true  },
+                    { "title": "Skipped",        "value": "${{ steps.run_tests.outputs.skipped }}",                                                                    "short": true  },
+                    { "title": "Failed Tests",   "value": "${{ steps.failed_tests.outputs.list }}",                                                                    "short": false },
+                    { "title": "Commit",         "value": "${{ github.sha }}",                                                                                         "short": false },
+                    { "title": "Allure Report",  "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",                      "short": false }
                   ]
                 }
               ]
@@ -122,7 +136,7 @@ jobs:
             <html>
             <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
               <div style="max-width: 600px; margin: auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-            
+
                 <div style="background-color: #2ea44f; padding: 20px 30px;">
                   <h2 style="color: white; margin: 0;">✅ Tests Passed</h2>
                   <p style="color: #d4f5d4; margin: 5px 0 0;">${{ github.repository }}</p>
@@ -225,9 +239,15 @@ jobs:
                       <td style="padding: 10px 0; color: #666;">Errors</td>
                       <td style="padding: 10px 0; font-weight: bold; color: #d73a49;">${{ steps.run_tests.outputs.errors }}</td>
                     </tr>
-                    <tr>
+                    <tr style="border-bottom: 1px solid #eee;">
                       <td style="padding: 10px 0; color: #666;">Skipped</td>
                       <td style="padding: 10px 0; font-weight: bold;">${{ steps.run_tests.outputs.skipped }}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 10px 0; color: #666; vertical-align: top;">Failed Tests</td>
+                      <td style="padding: 10px 0; font-weight: bold; color: #d73a49;">
+                        ${{ steps.failed_tests.outputs.list }}
+                      </td>
                     </tr>
                   </table>
 

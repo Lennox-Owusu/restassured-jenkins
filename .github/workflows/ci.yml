@@ -31,19 +31,15 @@ jobs:
         id: run_tests
         run: |
           set +e
-          mvn test | tee test-output.txt
-          TEST_EXIT_CODE=${PIPESTATUS[0]}
+          mvn test -Dmaven.test.failure.ignore=true | tee test-output.txt
 
-          # Only read the LAST occurrence (final summary line)
           echo "tests_run=$(grep -oP 'Tests run: \K[0-9]+' test-output.txt | tail -1)" >> $GITHUB_OUTPUT
           echo "failures=$(grep -oP 'Failures: \K[0-9]+' test-output.txt | tail -1)" >> $GITHUB_OUTPUT
           echo "errors=$(grep -oP 'Errors: \K[0-9]+' test-output.txt | tail -1)" >> $GITHUB_OUTPUT
           echo "skipped=$(grep -oP 'Skipped: \K[0-9]+' test-output.txt | tail -1)" >> $GITHUB_OUTPUT
 
-          exit $TEST_EXIT_CODE
-
       - name: Extract failed tests
-        if: failure()
+        if: always()
         id: failed_tests
         run: |
           FAILED=$(grep -oP 'FAILED\s+\K\S+' test-output.txt | head -20 | sed 's/^/• /' | tr '\n' '|')
@@ -62,53 +58,26 @@ jobs:
           path: target/site/allure-maven-plugin
 
       # ── Slack Notification ──────────────────────────────────────────────────
-      - name: Notify Slack on Success
-        if: success()
+      - name: Notify Slack
+        if: always()
         uses: slackapi/slack-github-action@v1.27.0
         with:
           payload: |
             {
-              "text": "✅ *${{ github.repository }}* — Tests Passed!",
+              "text": "${{ (steps.run_tests.outputs.failures == '0' && steps.run_tests.outputs.errors == '0') && '✅' || '❌' }} *${{ github.repository }}* — ${{ (steps.run_tests.outputs.failures == '0' && steps.run_tests.outputs.errors == '0') && 'Tests Passed!' || 'Tests have failures!' }}",
               "attachments": [
                 {
-                  "color": "good",
+                  "color": "${{ (steps.run_tests.outputs.failures == '0' && steps.run_tests.outputs.errors == '0') && 'good' || 'danger' }}",
                   "fields": [
-                    { "title": "Branch",        "value": "${{ github.ref_name }}",                                                                                    "short": true  },
-                    { "title": "Triggered",      "value": "${{ github.actor }}",                                                                                       "short": true  },
-                    { "title": "Tests Run",      "value": "${{ steps.run_tests.outputs.tests_run }}",                                                                  "short": true  },
-                    { "title": "Failures",       "value": "${{ steps.run_tests.outputs.failures }}",                                                                   "short": true  },
-                    { "title": "Errors",         "value": "${{ steps.run_tests.outputs.errors }}",                                                                     "short": true  },
-                    { "title": "Skipped",        "value": "${{ steps.run_tests.outputs.skipped }}",                                                                    "short": true  },
-                    { "title": "Commit",         "value": "${{ github.sha }}",                                                                                         "short": false },
-                    { "title": "Allure Report",  "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",                      "short": false }
-                  ]
-                }
-              ]
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
-
-      - name: Notify Slack on Failure
-        if: failure()
-        uses: slackapi/slack-github-action@v1.27.0
-        with:
-          payload: |
-            {
-              "text": "❌ *${{ github.repository }}* — Tests FAILED!",
-              "attachments": [
-                {
-                  "color": "danger",
-                  "fields": [
-                    { "title": "Branch",        "value": "${{ github.ref_name }}",                                                                                    "short": true  },
-                    { "title": "Triggered",      "value": "${{ github.actor }}",                                                                                       "short": true  },
-                    { "title": "Tests Run",      "value": "${{ steps.run_tests.outputs.tests_run }}",                                                                  "short": true  },
-                    { "title": "Failures",       "value": "${{ steps.run_tests.outputs.failures }}",                                                                   "short": true  },
-                    { "title": "Errors",         "value": "${{ steps.run_tests.outputs.errors }}",                                                                     "short": true  },
-                    { "title": "Skipped",        "value": "${{ steps.run_tests.outputs.skipped }}",                                                                    "short": true  },
-                    { "title": "Failed Tests",   "value": "${{ steps.failed_tests.outputs.list }}",                                                                    "short": false },
-                    { "title": "Commit",         "value": "${{ github.sha }}",                                                                                         "short": false },
-                    { "title": "Allure Report",  "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",                      "short": false }
+                    { "title": "Branch",        "value": "${{ github.ref_name }}",                                                                              "short": true  },
+                    { "title": "Triggered",     "value": "${{ github.actor }}",                                                                                 "short": true  },
+                    { "title": "Tests Run",     "value": "${{ steps.run_tests.outputs.tests_run }}",                                                            "short": true  },
+                    { "title": "Failures",      "value": "${{ steps.run_tests.outputs.failures }}",                                                             "short": true  },
+                    { "title": "Errors",        "value": "${{ steps.run_tests.outputs.errors }}",                                                               "short": true  },
+                    { "title": "Skipped",       "value": "${{ steps.run_tests.outputs.skipped }}",                                                              "short": true  },
+                    { "title": "Failed Tests",  "value": "${{ steps.failed_tests.outputs.list }}",                                                              "short": false },
+                    { "title": "Commit",        "value": "${{ github.sha }}",                                                                                   "short": false },
+                    { "title": "Allure Report", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",                 "short": false }
                   ]
                 }
               ]
@@ -118,8 +87,8 @@ jobs:
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
 
       # ── Gmail Notification ──────────────────────────────────────────────────
-      - name: Notify Gmail on Success
-        if: success()
+      - name: Notify Gmail
+        if: always()
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -129,7 +98,7 @@ jobs:
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
           to: ${{ secrets.NOTIFY_EMAIL }}
           from: CI Bot <${{ secrets.GMAIL_USERNAME }}>
-          subject: "✅ Tests Passed — ${{ github.repository }} (${{ github.ref_name }})"
+          subject: "${{ (steps.run_tests.outputs.failures == '0' && steps.run_tests.outputs.errors == '0') && '✅ Tests Passed' || '❌ Tests Failed' }} — ${{ github.repository }} (${{ github.ref_name }})"
           convert_markdown: false
           html_body: |
             <!DOCTYPE html>
@@ -137,9 +106,12 @@ jobs:
             <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
               <div style="max-width: 600px; margin: auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
 
-                <div style="background-color: #2ea44f; padding: 20px 30px;">
-                  <h2 style="color: white; margin: 0;">✅ Tests Passed</h2>
-                  <p style="color: #d4f5d4; margin: 5px 0 0;">${{ github.repository }}</p>
+                <!-- Header — green if passed, red if failed -->
+                <div style="background-color: ${{ (steps.run_tests.outputs.failures == '0' && steps.run_tests.outputs.errors == '0') && '#2ea44f' || '#d73a49' }}; padding: 20px 30px;">
+                  <h2 style="color: white; margin: 0;">
+                    ${{ (steps.run_tests.outputs.failures == '0' && steps.run_tests.outputs.errors == '0') && '✅ Tests Passed' || '❌ Tests Failed' }}
+                  </h2>
+                  <p style="color: #eee; margin: 5px 0 0;">${{ github.repository }}</p>
                 </div>
 
                 <div style="padding: 25px 30px;">
@@ -162,82 +134,17 @@ jobs:
                     </tr>
                     <tr style="border-bottom: 1px solid #eee;">
                       <td style="padding: 10px 0; color: #666;">Failures</td>
-                      <td style="padding: 10px 0; font-weight: bold; color: #2ea44f;">${{ steps.run_tests.outputs.failures }}</td>
+                      <td style="padding: 10px 0; font-weight: bold;
+                        color: ${{ steps.run_tests.outputs.failures == '0' && '#2ea44f' || '#d73a49' }};">
+                        ${{ steps.run_tests.outputs.failures }}
+                      </td>
                     </tr>
                     <tr style="border-bottom: 1px solid #eee;">
                       <td style="padding: 10px 0; color: #666;">Errors</td>
-                      <td style="padding: 10px 0; font-weight: bold; color: #2ea44f;">${{ steps.run_tests.outputs.errors }}</td>
-                    </tr>
-                    <tr>
-                      <td style="padding: 10px 0; color: #666;">Skipped</td>
-                      <td style="padding: 10px 0; font-weight: bold;">${{ steps.run_tests.outputs.skipped }}</td>
-                    </tr>
-                  </table>
-
-                  <div style="margin-top: 25px; text-align: center;">
-                    <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                      style="background-color: #2ea44f; color: white; padding: 12px 25px; border-radius: 6px; text-decoration: none; font-weight: bold;">
-                      View Allure Report & Run
-                    </a>
-                  </div>
-                </div>
-
-                <div style="background-color: #f4f4f4; padding: 15px 30px; text-align: center;">
-                  <p style="color: #999; font-size: 12px; margin: 0;">This is an automated message from GitHub Actions</p>
-                </div>
-              </div>
-            </body>
-            </html>
-
-      - name: Notify Gmail on Failure
-        if: failure()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.GMAIL_USERNAME }}
-          password: ${{ secrets.GMAIL_APP_PASSWORD }}
-          to: ${{ secrets.NOTIFY_EMAIL }}
-          from: CI Bot <${{ secrets.GMAIL_USERNAME }}>
-          subject: "❌ Tests FAILED — ${{ github.repository }} (${{ github.ref_name }})"
-          convert_markdown: false
-          html_body: |
-            <!DOCTYPE html>
-            <html>
-            <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
-              <div style="max-width: 600px; margin: auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-
-                <div style="background-color: #d73a49; padding: 20px 30px;">
-                  <h2 style="color: white; margin: 0;">❌ Tests Failed</h2>
-                  <p style="color: #fdd; margin: 5px 0 0;">${{ github.repository }}</p>
-                </div>
-
-                <div style="padding: 25px 30px;">
-                  <table style="width: 100%; border-collapse: collapse;">
-                    <tr style="border-bottom: 1px solid #eee;">
-                      <td style="padding: 10px 0; color: #666; width: 40%;">Branch</td>
-                      <td style="padding: 10px 0; font-weight: bold;">${{ github.ref_name }}</td>
-                    </tr>
-                    <tr style="border-bottom: 1px solid #eee;">
-                      <td style="padding: 10px 0; color: #666;">Triggered by</td>
-                      <td style="padding: 10px 0; font-weight: bold;">${{ github.actor }}</td>
-                    </tr>
-                    <tr style="border-bottom: 1px solid #eee;">
-                      <td style="padding: 10px 0; color: #666;">Commit</td>
-                      <td style="padding: 10px 0; font-family: monospace; font-size: 13px;">${{ github.sha }}</td>
-                    </tr>
-                    <tr style="border-bottom: 1px solid #eee;">
-                      <td style="padding: 10px 0; color: #666;">Tests Run</td>
-                      <td style="padding: 10px 0; font-weight: bold;">${{ steps.run_tests.outputs.tests_run }}</td>
-                    </tr>
-                    <tr style="border-bottom: 1px solid #eee;">
-                      <td style="padding: 10px 0; color: #666;">Failures</td>
-                      <td style="padding: 10px 0; font-weight: bold; color: #d73a49;">${{ steps.run_tests.outputs.failures }}</td>
-                    </tr>
-                    <tr style="border-bottom: 1px solid #eee;">
-                      <td style="padding: 10px 0; color: #666;">Errors</td>
-                      <td style="padding: 10px 0; font-weight: bold; color: #d73a49;">${{ steps.run_tests.outputs.errors }}</td>
+                      <td style="padding: 10px 0; font-weight: bold;
+                        color: ${{ steps.run_tests.outputs.errors == '0' && '#2ea44f' || '#d73a49' }};">
+                        ${{ steps.run_tests.outputs.errors }}
+                      </td>
                     </tr>
                     <tr style="border-bottom: 1px solid #eee;">
                       <td style="padding: 10px 0; color: #666;">Skipped</td>
@@ -245,7 +152,7 @@ jobs:
                     </tr>
                     <tr>
                       <td style="padding: 10px 0; color: #666; vertical-align: top;">Failed Tests</td>
-                      <td style="padding: 10px 0; font-weight: bold; color: #d73a49;">
+                      <td style="padding: 10px 0; font-weight: bold; color: #d73a49; white-space: pre-line;">
                         ${{ steps.failed_tests.outputs.list }}
                       </td>
                     </tr>
@@ -253,7 +160,8 @@ jobs:
 
                   <div style="margin-top: 25px; text-align: center;">
                     <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                      style="background-color: #d73a49; color: white; padding: 12px 25px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+                      style="background-color: ${{ (steps.run_tests.outputs.failures == '0' && steps.run_tests.outputs.errors == '0') && '#2ea44f' || '#d73a49' }};
+                             color: white; padding: 12px 25px; border-radius: 6px; text-decoration: none; font-weight: bold;">
                       View Allure Report & Run
                     </a>
                   </div>

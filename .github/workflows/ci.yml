@@ -1,572 +1,163 @@
-name: Test Automation CI
+name: API Tests CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Build Docker image
-      run: docker build -t api-tests .
-    
-    - name: Set up JDK 11
-      uses: actions/setup-java@v4
-      with:
-        java-version: '11'
-        distribution: 'temurin'
-        cache: maven
-    
-    - name: Install Chrome
-      uses: browser-actions/setup-chrome@latest
-      with:
-        chrome-version: stable
-    
-    - name: Display Chrome version
-      run: google-chrome --version
-    
-    - name: Record start time
-      id: start_time
-      run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
-    
-    - name: Run tests
-      id: tests
-      run: mvn clean test
-      continue-on-error: true
-    
-    - name: Calculate execution time
-      if: always()
-      id: execution_time
-      run: |
-        END_TIME=$(date +%s)
-        START_TIME=${{ steps.start_time.outputs.start_time }}
-        DURATION=$((END_TIME - START_TIME))
-        MINUTES=$((DURATION / 60))
-        SECONDS=$((DURATION % 60))
-        
-        echo "duration_seconds=$DURATION" >> $GITHUB_OUTPUT
-        echo "duration_formatted=${MINUTES}m ${SECONDS}s" >> $GITHUB_OUTPUT
-        echo "Execution time: ${MINUTES}m ${SECONDS}s"
-    
-    - name: Generate Allure Report
-      if: always()
-      run: mvn allure:report
-      continue-on-error: true
-    
-    - name: Get test results summary
-      if: always()
-      id: test_summary
-      run: |
-        TOTAL=0
-        PASSED=0
-        FAILED=0
-        SKIPPED=0
-        
-        if [ -f target/surefire-reports/TEST-TestSuite.xml ]; then
-          echo "Found TEST-TestSuite.xml, parsing..."
-          
-          TOTAL=$(grep -oP 'tests="\K[0-9]+' target/surefire-reports/TEST-TestSuite.xml | head -1)
-          FAILURES=$(grep -oP 'failures="\K[0-9]+' target/surefire-reports/TEST-TestSuite.xml | head -1)
-          ERRORS=$(grep -oP 'errors="\K[0-9]+' target/surefire-reports/TEST-TestSuite.xml | head -1)
-          SKIPPED=$(grep -oP 'skipped="\K[0-9]+' target/surefire-reports/TEST-TestSuite.xml | head -1)
-          
-          TOTAL=${TOTAL:-0}
-          FAILURES=${FAILURES:-0}
-          ERRORS=${ERRORS:-0}
-          SKIPPED=${SKIPPED:-0}
-          
-          FAILED=$((FAILURES + ERRORS))
-          PASSED=$((TOTAL - FAILED - SKIPPED))
-          
-          echo "Parsed results: Total=$TOTAL, Passed=$PASSED, Failed=$FAILED, Skipped=$SKIPPED"
-          
-        elif [ -f target/surefire-reports/testng-results.xml ]; then
-          echo "Found testng-results.xml, parsing..."
-          
-          TOTAL=$(grep -oP 'total="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
-          PASSED=$(grep -oP 'passed="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
-          FAILED=$(grep -oP 'failed="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
-          SKIPPED=$(grep -oP 'skipped="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
-          
-          TOTAL=${TOTAL:-0}
-          PASSED=${PASSED:-0}
-          FAILED=${FAILED:-0}
-          SKIPPED=${SKIPPED:-0}
-        fi
-        
-        if [ "$TOTAL" -gt 0 ]; then
-          PASS_RATE=$((PASSED * 100 / TOTAL))
-        else
-          PASS_RATE=0
-        fi
-        
-        echo "Pass Rate: ${PASS_RATE}%"
-        
-        echo "total=$TOTAL" >> $GITHUB_OUTPUT
-        echo "passed=$PASSED" >> $GITHUB_OUTPUT
-        echo "failed=$FAILED" >> $GITHUB_OUTPUT
-        echo "skipped=$SKIPPED" >> $GITHUB_OUTPUT
-        echo "pass_rate=$PASS_RATE" >> $GITHUB_OUTPUT
-        
-        if [ "$FAILED" -gt 0 ]; then
-          echo "status=FAILED" >> $GITHUB_OUTPUT
-          echo "status_emoji=🔴" >> $GITHUB_OUTPUT
-        elif [ "$TOTAL" -eq 0 ]; then
-          echo "status=NO TESTS" >> $GITHUB_OUTPUT
-          echo "status_emoji=⚠️" >> $GITHUB_OUTPUT
-        else
-          echo "status=PASSED" >> $GITHUB_OUTPUT
-          echo "status_emoji=✅" >> $GITHUB_OUTPUT
-        fi
-    
-    - name: Extract failed test details
-      if: always()
-      id: failed_tests
-      run: |
-        echo "=== Extracting failed test details ==="
-        
-        FAILED_TESTS=""
-        
-        if [ ! -d target/surefire-reports ]; then
-          echo "ERROR: target/surefire-reports directory not found"
-          echo "failed_list=Test reports directory not found" >> $GITHUB_OUTPUT
-          exit 0
-        fi
-        
-        echo "Surefire reports directory found"
-        
-        if [ -f target/surefire-reports/TestSuite.txt ]; then
-          echo "Parsing TestSuite.txt for failed tests..."
-          
-          FAILED_TESTS=$(grep "<<< FAILURE!" target/surefire-reports/TestSuite.txt | \
-            grep -oP 'tests\.\w+\.\w+\.\K\w+' | \
-            sed 's/^/• /' | \
-            head -20)
-          
-          if [ -z "$FAILED_TESTS" ]; then
-            FAILED_TESTS=$(grep "<<< FAILURE!" target/surefire-reports/TestSuite.txt | \
-              awk '{print $1}' | \
-              sed 's/tests\.\w*\.\w*\./• /' | \
-              head -20)
-          fi
-        fi
-        
-        if [ -z "$FAILED_TESTS" ] || [ "$FAILED_TESTS" = "" ]; then
-          echo "No failed tests found in reports"
-          echo "failed_list=No specific failure details available" >> $GITHUB_OUTPUT
-        else
-          echo "Found failed tests:"
-          echo "$FAILED_TESTS"
-          
-          echo "failed_list<<EOF" >> $GITHUB_OUTPUT
-          echo "$FAILED_TESTS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-        fi
-    
-    - name: Get environment info
-      if: always()
-      id: env_info
-      run: |
-        CHROME_VERSION=$(google-chrome --version | cut -d' ' -f3)
-        JAVA_VERSION=$(java -version 2>&1 | head -1 | cut -d'"' -f2)
-        
-        echo "chrome_version=$CHROME_VERSION" >> $GITHUB_OUTPUT
-        echo "java_version=$JAVA_VERSION" >> $GITHUB_OUTPUT
-    
-    - name: Send Enhanced Slack notification
-      if: always()
-      uses: slackapi/slack-github-action@v1.25.0
-      with:
-        payload: |
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Run tests
+        run: mvn -B test
+
+      - name: Generate Allure Report
+        run: mvn -B allure:report
+
+      - name: Upload Allure Report
+        uses: actions/upload-artifact@v4
+        if: always() # upload even if tests fail, so you can inspect results
+        with:
+          name: allure-report
+          path: target/site/allure-maven-plugin
+
+      # ---------------------------
+      # Slack Notification (Webhook)
+      # ---------------------------
+      # OPTION A (simple): Incoming Webhook
+      - name: Slack Notification (success)
+        if: success()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BRANCH: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          payload=$(cat <<'JSON'
           {
-            "blocks": [
+            "attachments": [
               {
-                "type": "header",
-                "text": {
-                  "type": "plain_text",
-                  "text": "${{ steps.test_summary.outputs.status_emoji }} XYZ Bank Test Automation Report 🐳",
-                  "emoji": true
-                }
-              },
-              {
-                "type": "section",
-                "fields": [
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Status:*\n${{ steps.test_summary.outputs.status }}"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Pass Rate:*\n${{ steps.test_summary.outputs.pass_rate }}%"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Duration:*\n${{ steps.execution_time.outputs.duration_formatted }}"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Branch:*\n`${{ github.ref_name }}`"
-                  }
-                ]
-              },
-              {
-                "type": "divider"
-              },
-              {
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": "*📊 Test Results Summary*"
-                }
-              },
-              {
-                "type": "section",
-                "fields": [
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Total:* ${{ steps.test_summary.outputs.total }}"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Passed:* ✅ ${{ steps.test_summary.outputs.passed }}"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Failed:* ❌ ${{ steps.test_summary.outputs.failed }}"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Skipped:* ⏭️ ${{ steps.test_summary.outputs.skipped }}"
-                  }
-                ]
-              },
-              {
-                "type": "divider"
-              },
-              {
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": "*🔧 Environment*\nChrome: ${{ steps.env_info.outputs.chrome_version }} | Java: ${{ steps.env_info.outputs.java_version }}\n🐳 *Dockerized* - Image built successfully"
-                }
-              },
-              {
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": "*🔗 Links*\n• <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run>\n• <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|View Commit>"
-                }
-              },
-              {
-                "type": "context",
-                "elements": [
-                  {
-                    "type": "mrkdwn",
-                    "text": "Repository: *${{ github.repository }}* | Run #${{ github.run_number }} | Triggered by: ${{ github.actor }}"
-                  }
-                ]
+                "color": "good",
+                "title": "✅ API Tests PASSED",
+                "text": "*Repo:* ${GITHUB_REPO}\n*Branch:* ${BRANCH}\n*Commit:* ${COMMIT}\n*Actor:* ${GITHUB_ACTOR}\n*Run:* ${GITHUB_RUN_URL}",
+                "mrkdwn_in": ["text"]
               }
             ]
           }
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
-    
-    - name: Format failed tests for notification
-      if: always() && steps.test_summary.outputs.failed > 0
-      id: format_failed
-      run: |
-        FAILED_LIST='${{ steps.failed_tests.outputs.failed_list }}'
-        FORMATTED=$(echo "$FAILED_LIST" | tr '\n' ',' | sed 's/,/, /g' | sed 's/, $//')
-        echo "formatted=$FORMATTED" >> $GITHUB_OUTPUT
-    
-    - name: Send failed tests to Slack
-      if: always() && steps.test_summary.outputs.failed > 0
-      uses: slackapi/slack-github-action@v1.25.0
-      with:
-        payload: |
+          JSON
+          )
+          curl -X POST -H 'Content-type: application/json' --data "$payload" "$SLACK_WEBHOOK_URL"
+
+      - name: Slack Notification (failure)
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BRANCH: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          payload=$(cat <<'JSON'
           {
-            "text": "❌ Failed Tests: ${{ steps.format_failed.outputs.formatted }}"
+            "attachments": [
+              {
+                "color": "danger",
+                "title": "❌ API Tests FAILED",
+                "text": "*Repo:* ${GITHUB_REPO}\n*Branch:* ${BRANCH}\n*Commit:* ${COMMIT}\n*Actor:* ${GITHUB_ACTOR}\n*Run:* ${GITHUB_RUN_URL}\n\n_Please download the **Allure Report** artifact for details._",
+                "mrkdwn_in": ["text"]
+              }
+            ]
           }
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
-    
-    - name: Send Enhanced Gmail notification
-      if: always()
-      uses: dawidd6/action-send-mail@v3
-      with:
-        server_address: smtp.gmail.com
-        server_port: 587
-        username: ${{ secrets.GMAIL_USERNAME }}
-        password: ${{ secrets.GMAIL_APP_PASSWORD }}
-        subject: "${{ steps.test_summary.outputs.status_emoji }} XYZ Bank Test Report (Dockerized) - ${{ steps.test_summary.outputs.status }} (${{ steps.test_summary.outputs.pass_rate }}% Pass Rate)"
-        to: ${{ secrets.GMAIL_RECIPIENT }}
-        from: ${{ secrets.GMAIL_USERNAME }}
-        html_body: |
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <style>
-              body { 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                line-height: 1.6; 
-                color: #333;
-                margin: 0;
-                padding: 0;
-                background-color: #f5f5f5;
-              }
-              .container { 
-                max-width: 650px; 
-                margin: 20px auto; 
-                background: white;
-                border-radius: 12px;
-                overflow: hidden;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-              }
-              .header { 
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                color: white; 
-                padding: 40px 30px; 
-                text-align: center;
-              }
-              .docker-badge {
-                background: #2496ed;
-                color: white;
-                padding: 5px 15px;
-                border-radius: 15px;
-                font-size: 12px;
-                display: inline-block;
-                margin-top: 10px;
-              }
-              .header h1 {
-                margin: 0 0 10px 0;
-                font-size: 28px;
-                font-weight: 600;
-              }
-              .header .subtitle {
-                font-size: 14px;
-                opacity: 0.9;
-                margin: 5px 0;
-              }
-              .status-badge { 
-                display: inline-block; 
-                padding: 12px 24px; 
-                border-radius: 25px; 
-                font-weight: bold; 
-                margin: 15px 0;
-                font-size: 16px;
-              }
-              .status-passed { background-color: #10b981; }
-              .status-failed { background-color: #ef4444; }
-              .content { padding: 30px; }
-              .section-title {
-                font-size: 18px;
-                font-weight: 600;
-                color: #1f2937;
-                margin: 25px 0 15px 0;
-                padding-bottom: 10px;
-                border-bottom: 2px solid #e5e7eb;
-              }
-              .metrics { 
-                display: grid; 
-                grid-template-columns: repeat(2, 1fr); 
-                gap: 15px; 
-                margin: 20px 0;
-              }
-              .metric-card { 
-                background: #f9fafb;
-                padding: 20px; 
-                border-radius: 10px;
-                border: 1px solid #e5e7eb;
-                text-align: center;
-              }
-              .metric-value { 
-                font-size: 36px; 
-                font-weight: bold; 
-                margin-bottom: 5px;
-              }
-              .metric-value.total { color: #667eea; }
-              .metric-value.passed { color: #10b981; }
-              .metric-value.failed { color: #ef4444; }
-              .metric-value.skipped { color: #f59e0b; }
-              .metric-label { 
-                color: #6b7280; 
-                font-size: 12px;
-                text-transform: uppercase;
-                font-weight: 600;
-              }
-              .pass-rate-bar {
-                width: 100%;
-                height: 30px;
-                background: #e5e7eb;
-                border-radius: 15px;
-                overflow: hidden;
-                margin: 15px 0;
-              }
-              .pass-rate-fill {
-                height: 100%;
-                background: linear-gradient(90deg, #10b981 0%, #059669 100%);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: white;
-                font-weight: bold;
-                font-size: 14px;
-              }
-              .details { 
-                background: #f9fafb;
-                padding: 20px; 
-                border-radius: 10px;
-                margin-top: 20px;
-                border: 1px solid #e5e7eb;
-              }
-              .info-row { 
-                display: flex; 
-                justify-content: space-between; 
-                padding: 12px 0; 
-                border-bottom: 1px solid #e5e7eb;
-              }
-              .info-row:last-child { border-bottom: none; }
-              .info-label { 
-                font-weight: 600; 
-                color: #6b7280;
-                font-size: 14px;
-              }
-              .info-value { 
-                color: #111827;
-                font-family: monospace;
-                font-size: 13px;
-                text-align: right;
-                max-width: 60%;
-                word-break: break-word;
-              }
-              .button { 
-                display: inline-block; 
-                background: #667eea; 
-                color: white; 
-                padding: 14px 32px; 
-                text-decoration: none; 
-                border-radius: 8px; 
-                margin: 5px;
-                font-weight: 600;
-                font-size: 14px;
-              }
-              .button-container { text-align: center; margin: 25px 0; }
-              .footer { 
-                text-align: center; 
-                margin-top: 30px; 
-                padding-top: 20px;
-                border-top: 1px solid #e5e7eb;
-                color: #6b7280; 
-                font-size: 12px;
-              }
-              .highlight-box {
-                background: #eff6ff;
-                border: 1px solid #3b82f6;
-                border-radius: 8px;
-                padding: 15px;
-                margin: 15px 0;
-              }
-              .failed-tests {
-                background: #fef2f2;
-                border: 1px solid #ef4444;
-                border-radius: 8px;
-                padding: 15px;
-                margin: 15px 0;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <div class="header">
-                <h1>🏦 API TEST AUTOMATION</h1>
-                <div class="docker-badge">🐳 Dockerized</div>
-                <div class="subtitle">Automated Test Execution Report</div>
-                <div class="status-badge status-${{ steps.test_summary.outputs.status == 'PASSED' && 'passed' || 'failed' }}">
-                  ${{ steps.test_summary.outputs.status }}
-                </div>
-                <div class="subtitle">⏱️ Duration: ${{ steps.execution_time.outputs.duration_formatted }}</div>
-              </div>
-              
-              <div class="content">
-                <div class="section-title">📊 Test Execution Summary</div>
-                
-                <div class="highlight-box">
-                  <strong>Pass Rate: ${{ steps.test_summary.outputs.pass_rate }}%</strong>
-                  <div class="pass-rate-bar">
-                    <div class="pass-rate-fill" style="width: ${{ steps.test_summary.outputs.pass_rate }}%;">
-                      ${{ steps.test_summary.outputs.pass_rate }}%
-                    </div>
-                  </div>
-                </div>
-                
-                <div class="metrics">
-                  <div class="metric-card">
-                    <div class="metric-value total">${{ steps.test_summary.outputs.total }}</div>
-                    <div class="metric-label">Total Tests</div>
-                  </div>
-                  <div class="metric-card">
-                    <div class="metric-value passed">${{ steps.test_summary.outputs.passed }}</div>
-                    <div class="metric-label">✅ Passed</div>
-                  </div>
-                  <div class="metric-card">
-                    <div class="metric-value failed">${{ steps.test_summary.outputs.failed }}</div>
-                    <div class="metric-label">❌ Failed</div>
-                  </div>
-                  <div class="metric-card">
-                    <div class="metric-value skipped">${{ steps.test_summary.outputs.skipped }}</div>
-                    <div class="metric-label">⏭️ Skipped</div>
-                  </div>
-                </div>
-                
-                ${{ steps.test_summary.outputs.failed > 0 && format('<div class="failed-tests"><div class="section-title">❌ Failed Tests</div><div style="white-space: pre-line;">{0}</div></div>', steps.failed_tests.outputs.failed_list) || '' }}
-                
-                <div class="section-title">🔧 Test Environment</div>
-                <div class="details">
-                  <div class="info-row">
-                    <span class="info-label">Chrome Version</span>
-                    <span class="info-value">${{ steps.env_info.outputs.chrome_version }}</span>
-                  </div>
-                  <div class="info-row">
-                    <span class="info-label">Java Version</span>
-                    <span class="info-value">${{ steps.env_info.outputs.java_version }}</span>
-                  </div>
-                  <div class="info-row">
-                    <span class="info-label">Docker Image</span>
-                    <span class="info-value">xyz-bank-tests:latest ✓</span>
-                  </div>
-                  <div class="info-row">
-                    <span class="info-label">Branch</span>
-                    <span class="info-value">${{ github.ref_name }}</span>
-                  </div>
-                  <div class="info-row">
-                    <span class="info-label">Commit</span>
-                    <span class="info-value">${{ github.sha }}</span>
-                  </div>
-                  <div class="info-row">
-                    <span class="info-label">Triggered By</span>
-                    <span class="info-value">${{ github.actor }}</span>
-                  </div>
-                </div>
-                
-                <div class="button-container">
-                  <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">View Full Report</a>
-                </div>
-                
-                <div class="footer">
-                  <p>API Test Automation| Run #${{ github.run_number }}</p>
-                  <p>Repository: ${{ github.repository }}</p>
-                </div>
-              </div>
-            </div>
-          </body>
-          </html>
+          JSON
+          )
+          curl -X POST -H 'Content-type: application/json' --data "$payload" "$SLACK_WEBHOOK_URL"
+
+      # ---------------------------
+      # Email Notification (SMTP)
+      # ---------------------------
+      - name: Send Email (success)
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: ✅ API Tests PASSED — ${{ github.repository }} @ ${{ github.ref_name }}
+          to: ${{ secrets.MAIL_TO }}
+          from: ${{ secrets.MAIL_FROM }}
+          content_type: text/html
+          body: |
+            <h3>API Tests PASSED</h3>
+            <p><b>Repository:</b> ${{ github.repository }}</p>
+            <p><b>Branch:</b> ${{ github.ref_name }}</p>
+            <p><b>Commit:</b> ${{ github.sha }}</p>
+            <p><b>Actor:</b> ${{ github.actor }}</p>
+            <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Workflow Run</a></p>
+            <p>Download the <i>Allure Report</i> from the workflow artifacts.</p>
+
+      - name: Send Email (failure)
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: ❌ API Tests FAILED — ${{ github.repository }} @ ${{ github.ref_name }}
+          to: ${{ secrets.MAIL_TO }}
+          from: ${{ secrets.MAIL_FROM }}
+          content_type: text/html
+          body: |
+            <h3>API Tests FAILED</h3>
+            <p><b>Repository:</b> ${{ github.repository }}</p>
+            <p><b>Branch:</b> ${{ github.ref_name }}</p>
+            <p><b>Commit:</b> ${{ github.sha }}</p>
+            <p><b>Actor:</b> ${{ github.actor }}</p>
+            <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Workflow Run</a></p>
+            <p>Please download the <i>Allure Report</i> artifact for detailed failure logs and stack traces.</p>
+
+      # ---------------------------
+      # (Optional) Slack via official action instead of webhook
+      # ---------------------------
+      # - name: Slack Notification (official action)
+      #   if: always()
+      #   uses: slackapi/slack-github-action@v1
+      #   with:
+      #     payload: |
+      #       {
+      #         "text": "${{ job.status }}: API Tests for ${{ github.repository }} on ${{ github.ref_name }}",
+      #         "attachments": [
+      #           {
+      #             "color": "${{ job.status == 'success' && '#2eb886' || '#e01e5a' }}",
+      #             "fields": [
+      #               {"title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
+      #             ]
+      #           }
+      #         ]
+      #       }
+      #   env:
+      #     SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      #     SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}

@@ -58,59 +58,70 @@ pipeline {
         always {
             echo 'Pipeline finished.'
         }
+        unstable {
+            script {
+                def testResults = currentBuild.testResultAction
+                def total = testResults ? testResults.totalCount : 0
+                def failed = testResults ? testResults.failCount : 0
+                def skipped = testResults ? testResults.skipCount : 0
+                def passed = total - failed - skipped
+                def duration = currentBuild.durationString.replace(' and counting', '')
+
+                def failedTests = ''
+                if (testResults && testResults.failCount > 0) {
+                    failedTests = testResults.failedTests.take(10).collect { test ->
+                        "• ${test.fullName}"
+                    }.join('\n')
+                }
+
+                slackSend(
+                    tokenCredentialId: 'slack-token',
+                    channel: '#jenkins-messages',
+                    color: 'warning',
+                    message: """⚠️ *UNSTABLE* — ${env.JOB_NAME} #${env.BUILD_NUMBER}
+    *Branch:* ${env.GIT_BRANCH}
+    *Duration:* ${duration}
+    *Tests:* ✅ ${passed} passed | ❌ ${failed} failed | ⏭️ ${skipped} skipped
+    *Failed Tests:*
+    ${failedTests}
+    *Build URL:* ${env.BUILD_URL}"""
+                )
+            }
+        }
         success {
-            emailext(
-                subject: "[PASSED] API Tests — Build #${env.BUILD_NUMBER}",
-                body: """
-                    <html>
-                    <body>
-                        <h2 style="color: green;">✅ Build PASSED</h2>
-                        <p><b>Job:</b> ${env.JOB_NAME}</p>
-                        <p><b>Build:</b> #${env.BUILD_NUMBER}</p>
-                        <p><a href="${env.BUILD_URL}">View Build</a></p>
-                    </body>
-                    </html>
-                """,
-                to: '${DEFAULT_RECIPIENTS}',
-                mimeType: 'text/html'
-            )
-            slackSend(
-                tokenCredentialId: 'slack-token',
-                channel: '#jenkins-messages',
-                color: 'good',
-                message: "✅ PASSED — ${env.JOB_NAME} #${env.BUILD_NUMBER} | <${env.BUILD_URL}|View Build>"
-            )
+            script {
+                def testResults = currentBuild.testResultAction
+                def total = testResults ? testResults.totalCount : 0
+                def failed = testResults ? testResults.failCount : 0
+                def skipped = testResults ? testResults.skipCount : 0
+                def passed = total - failed - skipped
+                def duration = currentBuild.durationString.replace(' and counting', '')
+
+                slackSend(
+                    tokenCredentialId: 'slack-token',
+                    channel: '#jenkins-messages',
+                    color: 'good',
+                    message: """✅ *PASSED* — ${env.JOB_NAME} #${env.BUILD_NUMBER}
+    *Branch:* ${env.GIT_BRANCH}
+    *Duration:* ${duration}
+    *Tests:* ✅ ${passed} passed | ⏭️ ${skipped} skipped
+    *Build URL:* ${env.BUILD_URL}"""
+                )
+            }
         }
         failure {
-            emailext(
-                subject: "[FAILED] API Tests — Build #${env.BUILD_NUMBER}",
-                body: """
-                    <html>
-                    <body>
-                        <h2 style="color: red;">❌ Build FAILED</h2>
-                        <p><b>Job:</b> ${env.JOB_NAME}</p>
-                        <p><b>Build:</b> #${env.BUILD_NUMBER}</p>
-                        <p><a href="${env.BUILD_URL}">View Build</a></p>
-                    </body>
-                    </html>
-                """,
-                to: '${DEFAULT_RECIPIENTS}',
-                mimeType: 'text/html'
-            )
-            slackSend(
-                tokenCredentialId: 'slack-token',
-                channel: '#jenkins-messages',
-                color: 'danger',
-                message: "❌ FAILED — ${env.JOB_NAME} #${env.BUILD_NUMBER} | <${env.BUILD_URL}|View Build>"
-            )
-        }
-        unstable {
-            slackSend(
-                tokenCredentialId: 'slack-token',
-                channel: '#jenkins-messages',
-                color: 'warning',
-                message: "⚠️ UNSTABLE — ${env.JOB_NAME} #${env.BUILD_NUMBER} (some tests failed) | <${env.BUILD_URL}|View Build>"
-            )
+            script {
+                def duration = currentBuild.durationString.replace(' and counting', '')
+
+                slackSend(
+                    tokenCredentialId: 'slack-token',
+                    channel: '#jenkins-messages',
+                    color: 'danger',
+                    message: """❌ *FAILED* — ${env.JOB_NAME} #${env.BUILD_NUMBER}
+    *Branch:* ${env.GIT_BRANCH}
+    *Duration:* ${duration}
+    *Build URL:* ${env.BUILD_URL}"""
+                )
+            }
         }
     }
-}

@@ -37,11 +37,9 @@ pipeline {
             steps {
                 echo 'Publishing test reports...'
 
-                // JUnit XML results — always available after tests run
                 junit allowEmptyResults: true,
                       testResults: '**/target/surefire-reports/*.xml'
 
-                // Generate Allure report first then publish
                 sh 'mvn allure:report -B || true'
 
                 publishHTML([
@@ -54,6 +52,7 @@ pipeline {
                 ])
             }
         }
+    }
 
     post {
         always {

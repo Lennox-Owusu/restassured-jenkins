@@ -79,12 +79,12 @@ pipeline {
                     channel: '#jenkins-messages',
                     color: 'warning',
                     message: """⚠️ *UNSTABLE* — ${env.JOB_NAME} #${env.BUILD_NUMBER}
-    *Branch:* ${env.GIT_BRANCH}
-    *Duration:* ${duration}
-    *Tests:* ✅ ${passed} passed | ❌ ${failed} failed | ⏭️ ${skipped} skipped
-    *Failed Tests:*
-    ${failedTests}
-    *Build URL:* ${env.BUILD_URL}"""
+*Branch:* ${env.GIT_BRANCH}
+*Duration:* ${duration}
+*Tests:* ✅ ${passed} passed | ❌ ${failed} failed | ⏭️ ${skipped} skipped
+*Failed Tests:*
+${failedTests}
+*Build URL:* ${env.BUILD_URL}"""
                 )
             }
         }
@@ -102,10 +102,10 @@ pipeline {
                     channel: '#jenkins-messages',
                     color: 'good',
                     message: """✅ *PASSED* — ${env.JOB_NAME} #${env.BUILD_NUMBER}
-    *Branch:* ${env.GIT_BRANCH}
-    *Duration:* ${duration}
-    *Tests:* ✅ ${passed} passed | ⏭️ ${skipped} skipped
-    *Build URL:* ${env.BUILD_URL}"""
+*Branch:* ${env.GIT_BRANCH}
+*Duration:* ${duration}
+*Tests:* ✅ ${passed} passed | ⏭️ ${skipped} skipped
+*Build URL:* ${env.BUILD_URL}"""
                 )
             }
         }
@@ -118,10 +118,11 @@ pipeline {
                     channel: '#jenkins-messages',
                     color: 'danger',
                     message: """❌ *FAILED* — ${env.JOB_NAME} #${env.BUILD_NUMBER}
-    *Branch:* ${env.GIT_BRANCH}
-    *Duration:* ${duration}
-    *Build URL:* ${env.BUILD_URL}"""
+*Branch:* ${env.GIT_BRANCH}
+*Duration:* ${duration}
+*Build URL:* ${env.BUILD_URL}"""
                 )
             }
         }
     }
+}

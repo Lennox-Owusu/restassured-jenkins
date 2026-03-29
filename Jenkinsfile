@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        SLACK_CHANNEL = '#jenkins-notifications'
+        SLACK_CHANNEL = '#jenkins-messages'
     }
 
     tools {
@@ -67,7 +67,6 @@ pipeline {
                         <h2 style="color: green;">✅ Build PASSED</h2>
                         <p><b>Job:</b> ${env.JOB_NAME}</p>
                         <p><b>Build:</b> #${env.BUILD_NUMBER}</p>
-                        <p><b>Branch:</b> ${env.GIT_BRANCH}</p>
                         <p><a href="${env.BUILD_URL}">View Build</a></p>
                     </body>
                     </html>
@@ -76,7 +75,8 @@ pipeline {
                 mimeType: 'text/html'
             )
             slackSend(
-                channel: "${SLACK_CHANNEL}",
+                tokenCredentialId: 'slack-token',
+                channel: '#jenkins-messages',
                 color: 'good',
                 message: "✅ PASSED — ${env.JOB_NAME} #${env.BUILD_NUMBER} | <${env.BUILD_URL}|View Build>"
             )
@@ -90,7 +90,6 @@ pipeline {
                         <h2 style="color: red;">❌ Build FAILED</h2>
                         <p><b>Job:</b> ${env.JOB_NAME}</p>
                         <p><b>Build:</b> #${env.BUILD_NUMBER}</p>
-                        <p><b>Branch:</b> ${env.GIT_BRANCH}</p>
                         <p><a href="${env.BUILD_URL}">View Build</a></p>
                     </body>
                     </html>
@@ -99,9 +98,18 @@ pipeline {
                 mimeType: 'text/html'
             )
             slackSend(
-                channel: "${SLACK_CHANNEL}",
+                tokenCredentialId: 'slack-token',
+                channel: '#jenkins-messages',
                 color: 'danger',
                 message: "❌ FAILED — ${env.JOB_NAME} #${env.BUILD_NUMBER} | <${env.BUILD_URL}|View Build>"
+            )
+        }
+        unstable {
+            slackSend(
+                tokenCredentialId: 'slack-token',
+                channel: '#jenkins-messages',
+                color: 'warning',
+                message: "⚠️ UNSTABLE — ${env.JOB_NAME} #${env.BUILD_NUMBER} (some tests failed) | <${env.BUILD_URL}|View Build>"
             )
         }
     }

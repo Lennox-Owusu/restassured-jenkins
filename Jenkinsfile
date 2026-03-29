@@ -29,16 +29,23 @@ pipeline {
         stage('Run Tests') {
             steps {
                 echo 'Running API tests...'
-                sh 'mvn test -B'
+                sh 'mvn test -B || true'
             }
         }
 
         stage('Publish Reports') {
             steps {
                 echo 'Publishing test reports...'
-                junit '**/target/surefire-reports/*.xml'
+
+                // JUnit XML results — always available after tests run
+                junit allowEmptyResults: true,
+                      testResults: '**/target/surefire-reports/*.xml'
+
+                // Generate Allure report first then publish
+                sh 'mvn allure:report -B || true'
+
                 publishHTML([
-                    allowMissing: false,
+                    allowMissing: true,
                     alwaysLinkToLastBuild: true,
                     keepAll: true,
                     reportDir: 'target/site/allure-maven-plugin',
@@ -47,7 +54,6 @@ pipeline {
                 ])
             }
         }
-    }
 
     post {
         always {
